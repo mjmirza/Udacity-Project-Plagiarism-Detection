@@ -1,0 +1,20 @@
+define([
+  'custom/amazon/aws-sdk.min', 'custom/amazon/aws-sdk-mobile-analytics.min', 'custom/amazon/client-config'
+],
+function (AWS, AMA, clientConfig) {
+  // Mobile Analytics is regionless, setting to 'us-east-1' according to official doc
+  this.AWS.config.region = 'us-east-1';
+
+  const AMAClientConfig = clientConfig;
+
+  this.AWS.config.credentials = new this.AWS.CognitoIdentityCredentials({
+    IdentityPoolId: AMAClientConfig.config.identityPoolId // Amazon Cognito Identity Pool ID
+  });
+
+  const options = {
+    appId: AMAClientConfig.config.appId, // Amazon Mobile Analytics App ID
+    appTitle: 'Jupyter Instrumentation'
+  };
+
+  return new this.AMA.Manager(options);
+});

@@ -1,0 +1,297 @@
+/**
+ * https://github.com/jupyter/notebook/blob/master/notebook/static/custom/custom.js
+ * https://aws.amazon.com/mobileanalytics/
+ * When times out :
+ *    redirect to login console
+ * When user click on OK to renew session :
+ *    create checkpoint, save notebook and redirect to login console
+ * Record jupyter events listed in jupyterEventList using Amazon Mobile Analytics
+ */
+define([
+  'jquery',
+  'base/js/dialog',
+  'base/js/namespace',
+  'base/js/events',
+  'moment',
+  'custom/amazon/mobile-analytics'
+],
+function ($, dialog, Jupyter, events, moment, mobileAnalyticsClient) {
+  var REDIRECT_URL = 'redirectURL';
+  var EXPIRY_DATE_COOKIE_NAME = 'expiryTime';
+
+  var ONE_HOUR = 60 * 60 * 1000;
+  var FIVE_MINUTES = 5 * 60 * 1000;
+
+  var advanceAlertInterval = ONE_HOUR;
+  var snoozeInterval = FIVE_MINUTES;
+
+  var setSessionPrompt;
+
+  // Exporting parameters and functions for accessibility from testing module
+  var exports = {};
+
+
+  var jupyterEventList = ['execution_request.Kernel',
+    'input_reply.Kernel',
+    'kernel_autorestarting.Kernel',
+    'kernel_busy.Kernel',
+    'kernel_connected.Kernel',
+    'kernel_connection_failed.Kernel',
+    'kernel_created.Kernel',
+    'kernel_created.Session',
+    'kernel_dead.Kernel',
+    'kernel_dead.Session',
+    'kernel_disconnected.Kernel',
+    'kernel_idle.Kernel',
+    'kernel_interrupting.Kernel',
+    'kernel_killed.Kernel',
+    'kernel_killed.Session',
+    'kernel_ready.Kernel',
+    'kernel_reconnecting.Kernel',
+    'kernel_restarting.Kernel',
+    'kernel_starting.Kernel',
+    'send_input_reply.Kernel',
+    'shell_reply.Kernel',
+    'spec_changed.Kernel',
+    'app_initialized.NotebookApp',
+    'autosave_disabled.Notebook',
+    'autosave_enabled.Notebook',
+    'checkpoint_created.Notebook',
+    'checkpoint_delete_failed.Notebook',
+    'checkpoint_deleted.Notebook',
+    'checkpoint_failed.Notebook',
+    'checkpoint_restore_failed.Notebook',
+    'checkpoint_restored.Notebook',
+    'checkpoints_listed.Notebook',
+    'command_mode.Notebook',
+    'edit_mode.Notebook',
+    'list_checkpoints_failed.Notebook',
+    'notebook_load_failed.Notebook',
+    'notebook_loaded.Notebook',
+    'notebook_loading.Notebook',
+    'notebook_rename_failed.Notebook',
+    'notebook_renamed.Notebook',
+    'notebook_restoring.Notebook',
+    'notebook_save_failed.Notebook',
+    'notebook_saved.Notebook',
+    'notebook_saving.Notebook',
+    'rename_notebook.Notebook',
+    'selected_cell_type_changed.Notebook',
+    'set_dirty.Notebook',
+    'set_next_input.Notebook',
+    'trust_changed.Notebook'];
+  const JUPYTER_EVENTS = jupyterEventList.join(' ');
+
+  /**
+  * Get cookie value for given cookie name.
+  * @param {name} cookie name
+  * @return {value} cookie valule
+  */
+  function getCookie(name) {
+    // from tornado docs: http://www.tornadoweb.org/en/stable/guide/security.html
+    var r = document.cookie.match('\\b' + name + '="?([^;]*)"?\\b');
+    return r ? r[1] : undefined;
+  }
+
+
+  /**
+  * Get workspace name from url
+  * e.g.
+  * url : https://awsc-integ.aws.amazon.com/im/home?region=us-west-2#/workspaces/openNotebook/ws1
+  * workspaceName : ws1
+  * @param {url} redirect url
+  * @return {workspaceName} workspace name
+  */
+  function getWorkspaceName(url) {
+    var arr = url.split('/');
+    return arr[arr.length - 1];
+  }
+
+  /**
+  * Open separate pop-up for sign in only
+  * Assumption : authToken cookie will be updated automatically after successful login.
+  */
+  function redirectToSignIn(redirectToSignInUrl) {
+    var workspaceName = getWorkspaceName(redirectToSignInUrl);
+
+    var signInWindow = window.open(redirectToSignInUrl, 'signin window', 'width=800, height=600');
+    var signInWindowAutoClosed = false;
+
+    // Check if signInWindow url changed from sign in url to workspace url every 100 milliseconds
+    // After successful redirection closes the signInWindow
+    var pollTimer = window.setInterval(function () {
+      // Show dialog on main window again when user closes the sign in window
+      if (!signInWindowAutoClosed && signInWindow.closed) {
+        window.clearInterval(pollTimer);
+        setSessionPrompt();
+      }
+
+      if (signInWindow.document.URL.match('https?://' + workspaceName)) {
+        window.clearInterval(pollTimer);
+        signInWindow.close();
+        signInWindowAutoClosed = true;
+      }
+    }, 100);
+  }
+
+  /**
+  * Show timeout alert pop up with option to remind later or renew session now.
+  */
+  function callSessionPrompt(expTimeEpoch) {
+    dialog.modal({
+      title: 'Session expiring soon',
+      body: 'This workspace session will expire ' + moment.unix(expTimeEpoch).fromNow() +
+            ' (at ' + moment.unix(expTimeEpoch).format('hh:mm A') + ').' +
+            ' If your session expires, you will lose unsaved changes.' +
+            ' Do you want to save a checkpoint and renew your session now?' +
+            ' Each session lasts 12 hours.',
+      buttons: {
+        'Remind me in 5 minutes': {
+          click: function () {
+            // Call setSessionPrompt method (which calculate timeout again based on token)
+            var timeRemaining = moment.unix(expTimeEpoch) - moment();
+            if (timeRemaining <= 0) {
+              setSessionPrompt();
+            } else if (timeRemaining < snoozeInterval) {
+              setTimeout(setSessionPrompt, timeRemaining);
+            } else {
+              setTimeout(setSessionPrompt, snoozeInterval);
+            }
+          }
+        },
+        'Save and renew session': {
+          class: 'btn-primary',
+          click: function () {
+            if (Jupyter.notebook) {
+              try {
+                // Save the notebook and create checkpoint for current notebook
+                Jupyter.notebook.save_checkpoint();
+              } catch (e) {
+                console.error('Could not save notebook. ' + e);
+              }
+            }
+            // Redirect to login console
+            redirectToSignIn(getCookie(REDIRECT_URL));
+          }
+        }
+      },
+      open: function () {
+        $(this).find('button.close').remove();
+      }
+    });
+  }
+
+  /**
+  * Starting function :
+  *   Get token > compute expiration time > compute time remaining in session
+  *   If there is no time remaining then redirect to login console.
+  *   Else decide to show pop up now or later based on time remaining.
+  */
+  setSessionPrompt = function () {
+    var expiryDateCookie = getCookie(EXPIRY_DATE_COOKIE_NAME);
+    var expTimeEpoch = expiryDateCookie / 1000;
+
+    var expTime = moment.unix(expTimeEpoch);
+    var now = moment();
+
+    var sessionTimeRemaining = expTime - now;
+
+    if (sessionTimeRemaining > 0) {
+      if (sessionTimeRemaining > advanceAlertInterval) {
+        setTimeout(setSessionPrompt, sessionTimeRemaining - advanceAlertInterval);
+      } else {
+        callSessionPrompt(expTimeEpoch);
+      }
+    } else {
+      // Redirect to login console
+      dialog.modal({
+        title: 'Please sign in again.',
+        body: 'You were logged out of your account.' +
+              ' Choose \'Sign In\' to continue using this workspace.',
+        buttons: {
+          'Sign In': {
+            class: 'btn-primary',
+            click: function () {
+              redirectToSignIn(getCookie(REDIRECT_URL));
+            }
+          }
+        },
+        open: function () {
+          $(this).find('button.close').remove();
+        }
+      });
+    }
+  };
+
+  /**
+   * Record the event status and generating a attribute:value map and a metric
+   * of the event.
+   * Eg: {Session: kernel_killed, kernel_killed: 1}
+   */
+  function recordStatus(event) {
+    mobileAnalyticsClient.recordEvent('Jupyter_Event', {
+      [event.namespace]: event.type
+    }, {
+      [event.type]: 1
+    });
+  }
+
+  /**
+   * Call to record event status when one of the event listed in jupyterEventList
+   * is triggered
+   */
+  function recordJupyterEvent() {
+    // submit an custom event when Jupyter kernel is killed
+    events.on({
+      [JUPYTER_EVENTS]: function (event) {
+        recordStatus(event);
+      }
+    });
+  }
+
+  /**
+   * Adds the 'Open JupyterLab' link to the upper-right corner of the Tree page.
+   */
+  function addJupyterLabButton() {
+    // The "Quit" button was recently added to Jupyter, so we know that if this button exists,
+    // then JupyterLab is also there.
+    $('#shutdown').before(
+      '<button '
+      + 'id="open_jupyter_lab" '
+      + 'class="btn btn-sm navbar-btn" '
+      // Style copied directly from page.less for so it matches the #shutdown button.
+      + 'style="color: #333; background-color: #fff; border-color: #ccc; margin-left: 10px;" '
+      + 'title="Open JupyterLab">'
+      + 'Open JupyterLab'
+      + '</button>'
+    );
+    $('#open_jupyter_lab').click(function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      window.location.href = '/lab';
+    });
+  }
+
+  $(document).ready(addJupyterLabButton());
+  $(document).ready(setSessionPrompt());
+  $(document).ready(recordJupyterEvent());
+
+  if (typeof exports !== 'undefined') {
+    // Export important parameters
+    exports.REDIRECT_URL = REDIRECT_URL;
+    exports.EXPIRY_DATE_COOKIE_NAME = EXPIRY_DATE_COOKIE_NAME;
+    exports.advanceAlertInterval = advanceAlertInterval;
+    exports.snoozeInterval = snoozeInterval;
+
+    // Export functions
+    exports.getCookie = getCookie;
+    exports.callSessionPrompt = callSessionPrompt;
+    exports.setSessionPrompt = setSessionPrompt;
+    exports.getWorkspaceName = getWorkspaceName;
+    exports.redirectToSignIn = redirectToSignIn;
+    exports.recordJupyterEvent = recordJupyterEvent;
+    exports.recordStatus = recordStatus;
+    exports.addJupyterLabButton = addJupyterLabButton;
+  }
+  return exports;
+});

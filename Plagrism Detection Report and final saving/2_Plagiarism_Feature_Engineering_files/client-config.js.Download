@@ -1,0 +1,104 @@
+// identityPoolId and appId are configured in ironman-mead-accounts+jupyter-instru@amazon.com
+const config = {
+  desktop: {
+    'us-west-2': {
+      identityPoolId: 'us-east-1:12740857-5d8e-4172-9d81-86bc4136900c',
+      appId: '4774a98f96994d0582bbeaead5430d2f'
+    }
+  },
+  alpha: {
+    'us-west-2': {
+      identityPoolId: 'us-east-1:12740857-5d8e-4172-9d81-86bc4136900c',
+      appId: '4774a98f96994d0582bbeaead5430d2f'
+    }
+  },
+  beta: {
+    'us-west-2': {
+      identityPoolId: 'us-east-1:12740857-5d8e-4172-9d81-86bc4136900c',
+      appId: 'aa11114bbd754a2ab674effb9a83fd69'
+    }
+  },
+  gamma: {
+    'us-west-2': {
+      identityPoolId: 'us-east-1:12740857-5d8e-4172-9d81-86bc4136900c',
+      appId: '5f19a33879fc45e6bd19546a3271774c'
+    }
+  },
+  prod: {
+    'us-west-2': {
+      identityPoolId: 'us-east-1:12740857-5d8e-4172-9d81-86bc4136900c',
+      appId: 'cfcc6506dbc24ee5890411df4cdc64bf'
+    },
+    'eu-west-1': {
+      identityPoolId: 'us-east-1:12740857-5d8e-4172-9d81-86bc4136900c',
+      appId: 'dc066830fcb24790b08132d6c96ff092'
+    },
+    'us-east-1': {
+      identityPoolId: 'us-east-1:12740857-5d8e-4172-9d81-86bc4136900c',
+      appId: 'f1bbb0760ebf4153a31d5c3a8ae6a7af'
+    },
+    'us-east-2': {
+      identityPoolId: 'us-east-1:12740857-5d8e-4172-9d81-86bc4136900c',
+      appId: '30ad28c0f7d84c9fb2e695a920d6de69'
+    },
+    'ap-northeast-1': {
+      identityPoolId: 'us-east-1:12740857-5d8e-4172-9d81-86bc4136900c',
+      appId: '67c8d1695ae547d9a208feb5f513bfc4'
+    },
+    'ap-northeast-2': {
+      identityPoolId: 'us-east-1:12740857-5d8e-4172-9d81-86bc4136900c',
+      appId: '66e8c8dc37e246d0ad0558900d8a1ace'
+    },
+    'ap-southeast-2': {
+      identityPoolId: 'us-east-1:12740857-5d8e-4172-9d81-86bc4136900c',
+      appId: 'ccf4d862bdd948639f57a593e71a8b67'
+    },
+    'eu-central-1': {
+      identityPoolId: 'us-east-1:12740857-5d8e-4172-9d81-86bc4136900c',
+      appId: '8460614e510e4368b39248090be365ea'
+    },
+    'ca-central-1': {
+      identityPoolId: 'us-east-1:5e9b88a7-595a-4812-b810-52f7f2f71da8',
+      appId: '1af6209a58784c688bbeebc52a40caf2'
+    },
+    'eu-west-2': {
+      identityPoolId: 'us-east-1:0bd5a501-aba9-4a7d-b769-0031c0a69ebb',
+      appId: '1ba730739c4b43e187c95d5ecc696b31'
+    },
+    'us-west-1': {
+      identityPoolId: 'us-east-1:de815097-3a09-4c20-ad46-a18ea6dbd07f',
+      appId: '4d150f13cec14a00a3533e9dc2e64c8b'
+    },
+    'ap-southeast-1': {
+      identityPoolId: 'us-east-1:8ad8e660-138c-4874-af8b-81fcd78394e4',
+      appId: 'b46141aff5c64c90833b83e2d8194c61'
+    },
+    'ap-south-1': {
+      identityPoolId: 'us-east-1:e2451e1a-9ef2-40ae-ba14-14ae19b81c4e',
+      appId: '25319feb123b4812b6b604e6b51aeeab'
+    }
+  }
+};
+
+function getCookie(name) {
+  // from tornado docs: http://www.tornadoweb.org/en/stable/guide/security.html
+  var cookie = '; ' + document.cookie;
+  var r = cookie.match('; \\b' + name + '="?([^;]*)"?\\b');
+
+  return r ? r[1] : undefined;
+}
+
+define(
+  function () {
+    var exports = {};
+    const domain = getCookie('domain');
+    const region = getCookie('region');
+
+    if (typeof exports !== 'undefined') {
+      // Export important parameters
+      exports.config = config[domain][region];
+      exports.getCookie = getCookie;
+    }
+    return exports;
+  }
+);
